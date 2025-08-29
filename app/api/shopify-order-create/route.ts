@@ -1,34 +1,30 @@
-// app/api/shopify-order-create/route.ts - Updated without shipping
+// app/api/shopify-order-create/route.ts - Corrected version
 import { NextRequest, NextResponse } from "next/server";
-import crypto from "crypto";
 import { ShopifyOrder, Order, Product, Customer, Store } from "@/types";
+import { ShopifyService } from "@/lib/shopify";
+import { prisma } from "@/lib/db";
 
-interface ClubStoreMapping {
-  [key: string]: Store;
+async function getAssignedStoreForOrder(order: ShopifyOrder): Promise<Store | undefined> {
+  if (!order.customer?.id) return undefined;
+
+  try {
+    const shopifyService = new ShopifyService();
+    const partnerStoreId = await shopifyService.getPartnerStoreForCustomer(order.customer.id.toString());
+
+    if (partnerStoreId) {
+      // Look up store in your database
+      const store = await prisma.store.findUnique({
+        where: { id: partnerStoreId },
+      });
+      return store || undefined;
+    }
+
+    return undefined;
+  } catch (error) {
+    console.error("Failed to get assigned store for order:", error);
+    return undefined;
+  }
 }
-
-const clubStoreMapping: ClubStoreMapping = {
-  CLUB_BRISBANE_TIGERS: {
-    id: "store_001",
-    name: "Brisbane CBD Store",
-    email: "brisbane@yourstore.com",
-  },
-  CLUB_GOLD_COAST_EAGLES: {
-    id: "store_002",
-    name: "Gold Coast Store",
-    email: "goldcoast@yourstore.com",
-  },
-  CLUB_SYDNEY_SHARKS: {
-    id: "store_003",
-    name: "Sydney Store",
-    email: "sydney@yourstore.com",
-  },
-  CLUB_TEST_CLUB: {
-    id: "store_test",
-    name: "Test Store",
-    email: "test@yourstore.com",
-  },
-};
 
 export async function POST(request: NextRequest) {
   console.log("🔍 INCOMING REQUEST:", {
@@ -49,8 +45,12 @@ export async function POST(request: NextRequest) {
     });
 
     const order: ShopifyOrder = await request.json();
+
+    // Get club info from various sources (fallback for existing orders)
     const clubInfo = extractClubInfo(order);
-    const assignedStore = clubInfo ? lookupStoreForClub(clubInfo) : undefined;
+
+    // Get assigned store via customer metafields (new approach)
+    const assignedStore = await getAssignedStoreForOrder(order);
 
     // Extract products with detailed information
     const products: Product[] =
@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
         image: item.image?.src || null,
       })) || [];
 
-    // Extract customer information
+    // Extract customer information (contact person, not the club)
     const customer: Customer = {
       id: order.customer?.id,
       email: order.email,
@@ -81,7 +81,7 @@ export async function POST(request: NextRequest) {
     };
 
     // Determine order status
-    const getOrderStatus = (order: ShopifyOrder): string => {
+    const getOrderStatus = (order: ShopifyOrder, assignedStore?: Store): string => {
       if (order.cancelled_at) return "cancelled";
       if (order.fulfillment_status === "fulfilled") return "fulfilled";
       if (order.fulfillment_status === "partial") return "partially_fulfilled";
@@ -98,7 +98,7 @@ export async function POST(request: NextRequest) {
       orderNumber: order.order_number,
       name: order.name, // Full order name like #1001
 
-      // Customer info
+      // Customer info (contact person)
       customer: customer,
       customerEmail: order.email,
 
@@ -118,13 +118,13 @@ export async function POST(request: NextRequest) {
       financialStatus: order.financial_status,
 
       // Club and store assignment
-      clubInfo: clubInfo,
+      clubInfo: clubInfo, // Keep this for backward compatibility
       assignedStore: assignedStore?.name,
       assignedStoreId: assignedStore?.id,
       assignedStoreEmail: assignedStore?.email,
 
       // Status and timestamps
-      status: getOrderStatus(order) as any,
+      status: getOrderStatus(order, assignedStore) as any,
       createdAt: order.created_at,
       updatedAt: order.updated_at,
       timestamp: new Date().toISOString(),
@@ -141,6 +141,7 @@ export async function POST(request: NextRequest) {
       orderId: order.id,
       orderNumber: order.order_number,
       customerEmail: order.email,
+      customerId: order.customer?.id,
       productsCount: products.length,
       totalQuantity: orderData.totalQuantity,
       clubInfo: clubInfo,
@@ -170,6 +171,7 @@ export async function POST(request: NextRequest) {
       orderId: order.id,
       orderNumber: order.order_number,
       customerEmail: order.email,
+      customerId: order.customer?.id,
       productsCount: products.length,
       clubInfo: clubInfo,
       assignedStore: assignedStore?.name,
@@ -219,8 +221,4 @@ function extractClubInfo(order: ShopifyOrder): string | undefined {
   }
 
   return undefined;
-}
-
-function lookupStoreForClub(clubName: string): Store | undefined {
-  return clubStoreMapping[clubName.toUpperCase()] || undefined;
 }

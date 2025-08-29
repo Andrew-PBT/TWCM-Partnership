@@ -1,4 +1,4 @@
-// prisma/schema.prisma
+// prisma/schema.prisma - Complete replacement
 generator client {
   provider = "prisma-client-js"
 }
@@ -8,103 +8,129 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model Order {
-  id        String   @id @default(cuid())
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+model Club {
+  id                String   @id @default(cuid())
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  name              String   @unique
+  shopifyCustomerId String   @unique
+  email             String   @unique
+  
+  // Partner store relationship (many clubs can share one store)
+  partnerStoreId    String
+  partnerStore      Store    @relation(fields: [partnerStoreId], references: [id])
+  
+  // One club can have many customers
+  customers         Customer[]
+  orders            Order[]
+  
+  @@map("clubs")
+}
 
-  // Shopify identifiers
-  orderId     String  @unique // Shopify order ID
-  orderNumber String // Human-readable order number
-  name        String? // Full order name like #1001
-
-  // Customer info
-  customerEmail String
-  customerId    String?
-
-  // Order details
-  totalPrice    String
-  subtotalPrice String?
-  totalTax      String?
-  currency      String  @default("AUD")
-
-  // Product info
-  lineItemsCount Int @default(0)
-  totalQuantity  Int @default(0)
-
-  // Fulfillment status
-  fulfillmentStatus String?
-  financialStatus   String?
-
-  // Club and store assignment
-  clubInfo           String?
-  assignedStore      String?
-  assignedStoreId    String?
-  assignedStoreEmail String?
-
-  // Status and timestamps
-  status      OrderStatus @default(PENDING)
-  assignedAt  DateTime?
-  fulfilledAt DateTime?
-
-  // Shopify timestamps
-  shopifyCreatedAt DateTime
-  shopifyUpdatedAt DateTime?
-
-  // Additional info
-  shopifyShop    String?
-  source         String  @default("shopify")
-  tags           String?
-  note           String?
-  orderStatusUrl String?
-
-  // Fulfillment tracking
-  trackingNumber String?
-  trackingUrl    String?
-  carrier        String?
-
-  // Internal notes and status
-  internalNotes   String?
-  noteAddedAt     DateTime?
-  statusNote      String?
-  statusUpdatedAt DateTime?
-
-  // Relations
-  customer Customer  @relation(fields: [customerEmail], references: [email])
-  products Product[]
-
-  @@map("orders")
+model Store {
+  id             String   @id @default(cuid())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  
+  name           String   @unique
+  email          String   @unique
+  active         Boolean  @default(true)
+  
+  // One store can serve many clubs as partner
+  partnerClubs   Club[]
+  
+  // One store can fulfill orders from any club (not just partners)
+  assignedOrders Order[]  @relation("AssignedStore")
+  
+  @@map("stores")
 }
 
 model Customer {
-  id        String   @id @default(cuid())
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  email            String  @unique
-  shopifyId        String? @unique
+  id               String   @id @default(cuid())
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  email            String   @unique
+  shopifyId        String?  @unique
   firstName        String?
   lastName         String?
   phone            String?
-  acceptsMarketing Boolean @default(false)
-
-  // Relations
-  orders Order[]
-
+  acceptsMarketing Boolean  @default(false)
+  
+  // Customer belongs to a club
+  clubId           String?
+  club             Club?    @relation(fields: [clubId], references: [id])
+  
+  orders           Order[]
+  
   @@map("customers")
 }
 
+model Order {
+  id                 String      @id @default(cuid())
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+  orderId            String      @unique
+  orderNumber        String
+  name               String?
+  
+  // Customer who placed the order
+  customerEmail      String
+  customer           Customer    @relation(fields: [customerEmail], references: [email])
+  
+  // Club that owns this order (derived from customer's club)
+  clubId             String?
+  club               Club?       @relation(fields: [clubId], references: [id])
+  
+  totalPrice         String
+  subtotalPrice      String?
+  totalTax           String?
+  currency           String      @default("USD")
+  lineItemsCount     Int         @default(0)
+  totalQuantity      Int         @default(0)
+  fulfillmentStatus  String?
+  financialStatus    String?
+  
+  // Store assignment (defaults to club's partner store)
+  assignedStoreId    String?
+  assignedStore      Store?      @relation("AssignedStore", fields: [assignedStoreId], references: [id])
+  
+  // Legacy fields for migration compatibility
+  customerId         String?
+  assignedStoreName  String?
+  assignedStoreEmail String?
+  clubInfo           String?
+  
+  status             OrderStatus @default(PENDING)
+  assignedAt         DateTime?
+  fulfilledAt        DateTime?
+  shopifyCreatedAt   DateTime
+  shopifyUpdatedAt   DateTime?
+  shopifyShop        String?
+  source             String      @default("shopify")
+  tags               String?
+  note               String?
+  orderStatusUrl     String?
+  trackingNumber     String?
+  trackingUrl        String?
+  carrier            String?
+  internalNotes      String?
+  noteAddedAt        DateTime?
+  statusNote         String?
+  statusUpdatedAt    DateTime?
+  
+  products           Product[]
+  
+  @@map("orders")
+}
+
 model Product {
-  id        String   @id @default(cuid())
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Shopify identifiers
-  shopifyId String // Line item ID from Shopify
-  productId String // Shopify product ID
-  variantId String // Shopify variant ID
-
-  // Product details
+  id                String   @id @default(cuid())
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  shopifyId         String
+  productId         String
+  variantId         String
   name              String
   title             String
   variantTitle      String?
@@ -115,24 +141,10 @@ model Product {
   vendor            String?
   fulfillmentStatus String?
   image             String?
-
-  // Relations
-  orderId String
-  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
-
+  orderId           String
+  order             Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  
   @@map("products")
-}
-
-model Store {
-  id        String   @id @default(cuid())
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  name   String  @unique
-  email  String  @unique
-  active Boolean @default(true)
-
-  @@map("stores")
 }
 
 enum OrderStatus {

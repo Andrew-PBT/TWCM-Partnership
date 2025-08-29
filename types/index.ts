@@ -198,3 +198,11 @@ export interface OrderActionRequest {
   orderId: string;
   data: any;
 }
+export interface ShopifyMetafield {
+  id: string;
+  namespace: string;
+  key: string;
+  value: string;
+  type: string;
+  description?: string;
+}

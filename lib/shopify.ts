@@ -1,4 +1,5 @@
 // lib/shopify.ts - Final working version
+import { ShopifyMetafield } from "@/types";
 interface ShopifyFulfillmentRequest {
   fulfillment: {
     location_id?: number;
@@ -67,6 +68,75 @@ export class ShopifyService {
     };
   }
 
+  async getCustomer(customerId: string) {
+    try {
+      const url = this.getShopifyUrl(`/customers/${customerId}.json`);
+
+      console.log("🔍 Getting customer from Shopify:", customerId);
+
+      const response = await fetch(url, {
+        method: "GET",
+        headers: this.getHeaders(),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to get customer from Shopify: ${response.status} - ${errorText}`);
+      }
+
+      const data = await response.json();
+      return data.customer;
+    } catch (error) {
+      console.error("❌ Error getting customer from Shopify:", error);
+      throw error;
+    }
+  }
+
+  async getCustomerMetafields(customerId: string) {
+    try {
+      const url = this.getShopifyUrl(`/customers/${customerId}/metafields.json`);
+
+      console.log("🔍 Getting customer metafields:", customerId);
+
+      const response = await fetch(url, {
+        method: "GET",
+        headers: this.getHeaders(),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to fetch customer metafields: ${response.status} - ${errorText}`);
+      }
+
+      const data = await response.json();
+      return data.metafields;
+    } catch (error) {
+      console.error("❌ Error getting customer metafields:", error);
+      throw error;
+    }
+  }
+
+  async getPartnerStoreForCustomer(customerId: string): Promise<string | null> {
+    try {
+      const metafields = await this.getCustomerMetafields(customerId);
+
+      // Look for the partner_store metafield
+      const partnerStoreField = metafields.find(
+        (field: ShopifyMetafield) => field.namespace === "custom" && field.key === "partner_store"
+      );
+
+      if (partnerStoreField?.value) {
+        console.log(`Found partner store for customer ${customerId}: ${partnerStoreField.value}`);
+        return partnerStoreField.value;
+      }
+
+      console.log(`No partner store found for customer ${customerId}`);
+      return null;
+    } catch (error) {
+      console.error("Failed to get partner store for customer:", error);
+      return null;
+    }
+  }
   async createFulfillment(
     orderId: string,
     fulfillmentData: {
