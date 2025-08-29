@@ -1,0 +1,51 @@
+{
+  "name": "twcm",
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "twcm",
+  "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
+  "shutdownAction": "stopCompose",
+  "runServices": [
+    "twcm"
+  ],
+  "overrideCommand": false,
+  "mounts": [
+    "source=//./pipe/docker_engine,target=/var/run/docker.sock,type=bind",
+    "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind"
+  ],
+  "features": {
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "installZsh": true,
+      "configureZshAsDefaultShell": true,
+      "installOhMyZsh": true
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "anjali.clipboard-history",
+        "apollographql.vscode-apollo",
+        "bradlc.vscode-tailwindcss",
+        "burkeholland.simple-react-snippets",
+        "dbaeumer.vscode-eslint",
+        "dsznajder.es7-react-js-snippets",
+        "eamodio.gitlens",
+        "esbenp.prettier-vscode",
+        "exodiusstudios.comment-anchors",
+        "maattdd.gitless",
+        "mechatroner.rainbow-csv",
+        "ms-azuretools.vscode-docker",
+        "redhat.vscode-yaml",
+        "tamasfe.even-better-toml",
+        "vscode-icons-team.vscode-icons",
+        "yoavbls.pretty-ts-errors",
+        "GitHub.copilot"
+      ],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "zsh"
+      }
+    }
+  },
+  "forwardPorts": [
+    3000
+  ]
+}

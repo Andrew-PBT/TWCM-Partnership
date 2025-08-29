@@ -1,0 +1,146 @@
+// prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Order {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Shopify identifiers
+  orderId     String  @unique // Shopify order ID
+  orderNumber String // Human-readable order number
+  name        String? // Full order name like #1001
+
+  // Customer info
+  customerEmail String
+  customerId    String?
+
+  // Order details
+  totalPrice    String
+  subtotalPrice String?
+  totalTax      String?
+  currency      String  @default("AUD")
+
+  // Product info
+  lineItemsCount Int @default(0)
+  totalQuantity  Int @default(0)
+
+  // Fulfillment status
+  fulfillmentStatus String?
+  financialStatus   String?
+
+  // Club and store assignment
+  clubInfo           String?
+  assignedStore      String?
+  assignedStoreId    String?
+  assignedStoreEmail String?
+
+  // Status and timestamps
+  status      OrderStatus @default(PENDING)
+  assignedAt  DateTime?
+  fulfilledAt DateTime?
+
+  // Shopify timestamps
+  shopifyCreatedAt DateTime
+  shopifyUpdatedAt DateTime?
+
+  // Additional info
+  shopifyShop    String?
+  source         String  @default("shopify")
+  tags           String?
+  note           String?
+  orderStatusUrl String?
+
+  // Fulfillment tracking
+  trackingNumber String?
+  trackingUrl    String?
+  carrier        String?
+
+  // Internal notes and status
+  internalNotes   String?
+  noteAddedAt     DateTime?
+  statusNote      String?
+  statusUpdatedAt DateTime?
+
+  // Relations
+  customer Customer  @relation(fields: [customerEmail], references: [email])
+  products Product[]
+
+  @@map("orders")
+}
+
+model Customer {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  email            String  @unique
+  shopifyId        String? @unique
+  firstName        String?
+  lastName         String?
+  phone            String?
+  acceptsMarketing Boolean @default(false)
+
+  // Relations
+  orders Order[]
+
+  @@map("customers")
+}
+
+model Product {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Shopify identifiers
+  shopifyId String // Line item ID from Shopify
+  productId String // Shopify product ID
+  variantId String // Shopify variant ID
+
+  // Product details
+  name              String
+  title             String
+  variantTitle      String?
+  quantity          Int
+  price             String
+  totalPrice        String
+  sku               String?
+  vendor            String?
+  fulfillmentStatus String?
+  image             String?
+
+  // Relations
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@map("products")
+}
+
+model Store {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  name   String  @unique
+  email  String  @unique
+  active Boolean @default(true)
+
+  @@map("stores")
+}
+
+enum OrderStatus {
+  PENDING
+  ASSIGNED
+  READY_TO_FULFILL
+  PARTIALLY_FULFILLED
+  FULFILLED
+  CANCELLED
+  PAYMENT_PENDING
+}
