@@ -256,8 +256,8 @@ export class DatabaseService {
       ] = await Promise.all([
         prisma.order.count(),
         prisma.order.count({ where: { createdAt: { gte: todayStart } } }),
-        prisma.order.count({ where: { assignedStore: { not: null } } }),
-        prisma.order.count({ where: { assignedStore: null } }),
+        prisma.order.count({ where: { assignedStoreId: { not: null } } }),
+        prisma.order.count({ where: { assignedStoreId: null } }),
         prisma.order.count({ where: { status: "FULFILLED" } }),
         prisma.order.count({ where: { status: "PENDING" } }),
         prisma.order.count({ where: { status: "READY_TO_FULFILL" } }),
