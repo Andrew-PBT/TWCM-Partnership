@@ -1,4 +1,4 @@
-// prisma/schema.prisma - Complete replacement
+// prisma/schema.prisma - Updated for hybrid system
 generator client {
   provider = "prisma-client-js"
 }
@@ -85,7 +85,7 @@ model Order {
   totalPrice         String
   subtotalPrice      String?
   totalTax           String?
-  currency           String      @default("USD")
+  currency           String      @default("AUD")  // Changed from USD to AUD
   lineItemsCount     Int         @default(0)
   totalQuantity      Int         @default(0)
   fulfillmentStatus  String?

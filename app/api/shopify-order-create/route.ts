@@ -1,59 +1,25 @@
-// app/api/shopify-order-create/route.ts - Corrected version
 import { NextRequest, NextResponse } from "next/server";
-import { ShopifyOrder, Order, Product, Customer, Store } from "@/types";
-import { ShopifyService } from "@/lib/shopify";
-import { prisma } from "@/lib/db";
-
-async function getAssignedStoreForOrder(order: ShopifyOrder): Promise<Store | undefined> {
-  if (!order.customer?.id) return undefined;
-
-  try {
-    const shopifyService = new ShopifyService();
-    const partnerStoreId = await shopifyService.getPartnerStoreForCustomer(order.customer.id.toString());
-
-    if (partnerStoreId) {
-      // Look up store in your database
-      const store = await prisma.store.findUnique({
-        where: { id: partnerStoreId },
-      });
-      return store || undefined;
-    }
-
-    return undefined;
-  } catch (error) {
-    console.error("Failed to get assigned store for order:", error);
-    return undefined;
-  }
-}
+import { HybridCustomerService } from "../../../lib/hybrid-customer-service";
+import { ShopifyOrder, Order } from "../../../types";
 
 export async function POST(request: NextRequest) {
-  console.log("🔍 INCOMING REQUEST:", {
-    method: request.method,
-    url: request.url,
-    timestamp: new Date().toISOString(),
-  });
+  console.log("📦 CLEAN ORDER WEBHOOK - Processing with metafields-only assignment...");
 
   try {
-    const shopifyTopic = request.headers.get("x-shopify-topic");
-    const shopifyShop = request.headers.get("x-shopify-shop-domain");
-    const hmacHeader = request.headers.get("x-shopify-hmac-sha256");
+    const order: ShopifyOrder = await request.json();
+    const customerService = new HybridCustomerService();
 
-    console.log("🔐 SHOPIFY HEADERS:", {
-      topic: shopifyTopic,
-      shop: shopifyShop,
-      hmacPresent: !!hmacHeader,
+    // Get assignment using hybrid approach (database first, API fallback)
+    const assignment = await customerService.getOrderAssignment(order.email, order.customer?.id?.toString());
+
+    console.log(`📋 Assignment result for ${order.email}:`, {
+      source: assignment.assignmentSource,
+      club: assignment.clubName,
+      store: assignment.assignedStoreName,
     });
 
-    const order: ShopifyOrder = await request.json();
-
-    // Get club info from various sources (fallback for existing orders)
-    const clubInfo = extractClubInfo(order);
-
-    // Get assigned store via customer metafields (new approach)
-    const assignedStore = await getAssignedStoreForOrder(order);
-
-    // Extract products with detailed information
-    const products: Product[] =
+    // Extract products
+    const products =
       order.line_items?.map((item) => ({
         id: item.id,
         productId: item.product_id,
@@ -70,8 +36,8 @@ export async function POST(request: NextRequest) {
         image: item.image?.src || null,
       })) || [];
 
-    // Extract customer information (contact person, not the club)
-    const customer: Customer = {
+    // Extract customer info
+    const customer = {
       id: order.customer?.id,
       email: order.email,
       firstName: order.customer?.first_name,
@@ -81,24 +47,24 @@ export async function POST(request: NextRequest) {
     };
 
     // Determine order status
-    const getOrderStatus = (order: ShopifyOrder, assignedStore?: Store): string => {
+    const getOrderStatus = (order: ShopifyOrder, hasAssignment: boolean): string => {
       if (order.cancelled_at) return "cancelled";
       if (order.fulfillment_status === "fulfilled") return "fulfilled";
       if (order.fulfillment_status === "partial") return "partially_fulfilled";
       if (order.financial_status === "paid" && !order.fulfillment_status) return "ready_to_fulfill";
       if (order.financial_status === "pending") return "payment_pending";
-      if (assignedStore) return "assigned";
+      if (hasAssignment) return "assigned";
       return "pending";
     };
 
-    // Create comprehensive order object for dashboard
+    // Create clean order object
     const orderData: Order = {
-      id: `${order.id}-${Date.now()}`, // Unique ID for frontend
+      id: `${order.id}-${Date.now()}`,
       orderId: order.id,
       orderNumber: order.order_number,
-      name: order.name, // Full order name like #1001
+      name: order.name,
 
-      // Customer info (contact person)
+      // Customer info
       customer: customer,
       customerEmail: order.email,
 
@@ -117,39 +83,37 @@ export async function POST(request: NextRequest) {
       fulfillmentStatus: order.fulfillment_status,
       financialStatus: order.financial_status,
 
-      // Club and store assignment
-      clubInfo: clubInfo, // Keep this for backward compatibility
-      assignedStore: assignedStore?.name,
-      assignedStoreId: assignedStore?.id,
-      assignedStoreEmail: assignedStore?.email,
+      // Club and store assignment (metafields-based only)
+      clubInfo: assignment.clubName,
+      assignedStore: assignment.assignedStoreName,
+      assignedStoreId: assignment.assignedStoreId,
+      assignedStoreEmail: undefined, // Will be populated by DatabaseService
 
       // Status and timestamps
-      status: getOrderStatus(order, assignedStore) as any,
+      status: getOrderStatus(order, !!assignment.assignedStoreId) as any,
       createdAt: order.created_at,
       updatedAt: order.updated_at,
       timestamp: new Date().toISOString(),
 
       // Additional info
-      shopifyShop: shopifyShop || undefined,
-      source: "shopify",
+      shopifyShop: request.headers.get("x-shopify-shop-domain") || undefined,
+      source: "shopify-metafields",
       tags: order.tags,
       note: order.note,
       orderStatusUrl: order.order_status_url,
     };
 
-    console.log("🆕 ORDER PROCESSED:", {
+    console.log("🆕 CLEAN ORDER PROCESSED:", {
       orderId: order.id,
       orderNumber: order.order_number,
       customerEmail: order.email,
-      customerId: order.customer?.id,
-      productsCount: products.length,
-      totalQuantity: orderData.totalQuantity,
-      clubInfo: clubInfo,
-      assignedStore: assignedStore?.name,
+      assignmentSource: assignment.assignmentSource,
+      clubInfo: orderData.clubInfo || "No club assigned",
+      assignedStore: orderData.assignedStore || "No store assigned",
       status: orderData.status,
     });
 
-    // Store the order data (send to our orders API)
+    // Store in database
     try {
       const baseUrl = new URL(request.url).origin;
       await fetch(`${baseUrl}/api/orders`, {
@@ -157,29 +121,33 @@ export async function POST(request: NextRequest) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(orderData),
       });
-    } catch (error) {
-      console.error("Failed to store order data:", error);
+    } catch (dbError) {
+      console.error("Failed to store order in database:", dbError);
     }
 
-    // If assigned to a store, you could send notification here
-    if (assignedStore) {
-      console.log(`📧 TODO: Notify ${assignedStore.name} about new order ${order.order_number}`);
+    // Notification for assignments
+    if (assignment.assignedStoreName) {
+      console.log(`📧 TODO: Notify ${assignment.assignedStoreName} about new order ${order.order_number}`);
+    } else {
+      console.log(`⚠️ Order ${order.order_number} requires manual assignment - no club/store found for ${order.email}`);
     }
 
     return NextResponse.json({
-      message: "Order received successfully",
+      message: "Order processed with metafields-only assignment",
       orderId: order.id,
       orderNumber: order.order_number,
       customerEmail: order.email,
-      customerId: order.customer?.id,
-      productsCount: products.length,
-      clubInfo: clubInfo,
-      assignedStore: assignedStore?.name,
+      assignment: {
+        source: assignment.assignmentSource,
+        club: assignment.clubName,
+        store: assignment.assignedStoreName,
+        requiresManualAssignment: !assignment.assignedStoreId,
+      },
       status: orderData.status,
       timestamp: orderData.timestamp,
     });
   } catch (error) {
-    console.error("❌ Webhook error:", error);
+    console.error("❌ Clean webhook error:", error);
     return NextResponse.json(
       {
         error: "Error processing order",
@@ -199,26 +167,4 @@ export async function OPTIONS() {
       "Access-Control-Allow-Headers": "Content-Type, X-Shopify-Hmac-Sha256, X-Shopify-Topic, X-Shopify-Shop-Domain",
     },
   });
-}
-
-function extractClubInfo(order: ShopifyOrder): string | undefined {
-  // Check discount codes
-  if (order.discount_codes && order.discount_codes.length > 0) {
-    const clubCode = order.discount_codes.find((code) => code.code.startsWith("CLUB_") || code.code.includes("CLUB"));
-    if (clubCode) return clubCode.code;
-  }
-
-  // Check order tags
-  if (order.tags && order.tags.includes("Club:")) {
-    const clubTag = order.tags.split(",").find((tag) => tag.trim().startsWith("Club:"));
-    return clubTag ? clubTag.replace("Club:", "").trim() : undefined;
-  }
-
-  // Check note attributes
-  if (order.note_attributes) {
-    const clubAttr = order.note_attributes.find((attr) => attr.name.toLowerCase() === "club");
-    return clubAttr ? clubAttr.value : undefined;
-  }
-
-  return undefined;
 }
