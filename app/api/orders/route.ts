@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { DatabaseService } from "@/lib/db";
 import { Order, OrdersResponse } from "@/types";
+import { EnhancedDatabaseService } from "@/lib/enhanced-db";
 
 export async function GET(request: NextRequest) {
   try {
@@ -50,6 +51,8 @@ export async function GET(request: NextRequest) {
   }
 }
 
+// In your existing app/api/orders/route.ts, replace the POST method:
+
 export async function POST(request: NextRequest) {
   try {
     const orderData = await request.json();
@@ -59,18 +62,20 @@ export async function POST(request: NextRequest) {
       orderData.timestamp = new Date().toISOString();
     }
 
-    // Add unique ID if not present (database will generate its own)
-    if (!orderData.id) {
-      orderData.id = `${orderData.orderId || Date.now()}-${Date.now()}`;
-    }
+    // Use the enhanced database service instead of the basic one
+    const order = await EnhancedDatabaseService.createOrderWithClubAssignment(orderData);
 
-    const order = await DatabaseService.createOrder(orderData);
-
-    console.log(`📝 Order added to database: ${order.orderNumber} - ${order.customerEmail}`);
+    console.log(`📝 Order added to database with assignment:`, {
+      orderNumber: order.orderNumber,
+      customer: order.customerEmail,
+      club: order.club?.name || "No club",
+      assignedStore: order.assignedStore?.name || "No store",
+      status: order.status,
+    });
 
     return NextResponse.json(
       {
-        message: "Order created successfully",
+        message: "Order created successfully with club assignment",
         order: order,
       },
       { status: 201 }

@@ -17,6 +17,9 @@
     "postinstall": "prisma generate"
   },
   "dependencies": {
+    "@okta/okta-auth-js": "^7.14.0",
+    "@okta/okta-react": "^6.10.0",
+    "@okta/okta-signin-widget": "^7.35.1",
     "@prisma/client": "^5.22.0",
     "next": "^14.2.29",
     "react": "^18.3.1",
